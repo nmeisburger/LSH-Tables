@@ -15,18 +15,23 @@ Reservoir::Reservoir() {
 }
 
 void Reservoir::add(unsigned int item) {
-    omp_set_lock(lock);
+    omp_set_lock(lock); // Acquire lock on reservoir.
+
     if (count < size) {
+        // If the reservoir is not full, then insert the element.
         reservoir[count] = item;
         count++;
     } else {
+        // Otherwise sample an element between 0 and count (count > size in this case). If the
+        // sampled location is less than the size, the replace the item at that location in the
+        // reservoir.
         unsigned int loc = rand() % count;
         if (loc < size) {
             reservoir[loc] = item;
         }
         count++;
     }
-    omp_unset_lock(lock);
+    omp_unset_lock(lock); // Release lock on reservoir.
 }
 
 void Reservoir::retrieve(unsigned int *buffer) {

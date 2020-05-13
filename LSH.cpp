@@ -15,15 +15,17 @@ LSH::LSH() {
 
 void LSH::insert(unsigned int num_items, unsigned int *items, unsigned int *hashes) {
 #pragma omp parallel for default(none) shared(num_items, hashes, items)
-    for (size_t n = 0; n < num_items; n++) {
-        for (size_t table = 0; table < L; table++) {
+    for (size_t n = 0; n < num_items; n++) {         // Iterate through each item.
+        for (size_t table = 0; table < L; table++) { // Iterate through each table for each item.
+            // Find the hash index for this item table and insert the item into that reservoir.
             reservoirs[table][hashes[n * L + table]].add(items[n]);
         }
     }
 }
 
 void LSH::insert(unsigned int item, unsigned int *hashes) {
-    for (size_t table = 0; table < L; table++) {
+    for (size_t table = 0; table < L; table++) { // Iterate through each table.
+        // Find the hash index for that table for the itema and insert the item into that reservoir.
         reservoirs[table][hashes[table]].add(item);
     }
 }
@@ -31,9 +33,11 @@ void LSH::insert(unsigned int item, unsigned int *hashes) {
 void LSH::retrieve(unsigned int num_query, unsigned int *hashes, unsigned int *results_buffer) {
 
 #pragma omp parallel for default(none) shared(num_query, hashes, results_buffer)
-    for (size_t query = 0; query < num_query; query++) {
-        for (size_t table = 0; table < L; table++) {
+    for (size_t query = 0; query < num_query; query++) { // Iterate through each query.
+        for (size_t table = 0; table < L; table++) {     // Iterate through each table.
+            // Calculate the location in the hash array for the given query and table.
             size_t loc = query * L + table;
+            // Retrieve the contents of the reservoir and copy them into the results buffer.
             reservoirs[table][hashes[loc]].retrieve(results_buffer + loc * reservoir_size);
         }
     }
@@ -42,17 +46,27 @@ void LSH::retrieve(unsigned int num_query, unsigned int *hashes, unsigned int *r
 void LSH::top_k(unsigned int num_query, unsigned int top_k, unsigned int *hashes,
                 unsigned int *selection) {
 
+    // Buffer to store reservoirs.
     unsigned int *extracted_reservoirs = new unsigned int[num_query * L * reservoir_size];
 
+    // Extract the reservoirs given by the hash indices.
     this->retrieve(num_query, hashes, extracted_reservoirs);
 
+    // A block is total number items extracted foreach query.
     unsigned int block = L * reservoir_size;
+
     for (size_t query = 0; query < num_query; query++) {
         unsigned int *start = extracted_reservoirs + query * block;
+        // Sort each block so that elements with the same id are next to each other. This makes
+        // frequency counting simpler.
         std::sort(start, start + block);
+
+        // Vector to store most frequent elements.
         std::vector<std::pair<unsigned int, unsigned int>> counts;
         unsigned int count = 0;
         unsigned int last = *start;
+
+        // Iterate through each item in the block and prefrom frequency counting.
         for (size_t i = 0; i < block; i++) {
             if (last == start[i]) {
                 count++;
@@ -68,15 +82,20 @@ void LSH::top_k(unsigned int num_query, unsigned int top_k, unsigned int *hashes
             counts.push_back(std::make_pair(last, count));
         }
 
+        // The counts vector now stores pairs of each element and how many times it occurred.
+        // Sort it by count to get the final ordering of the most frequent elements.
         std::sort(counts.begin(), counts.end(),
                   [&counts](std::pair<int, int> a, std::pair<int, int> b) {
                       return a.second > b.second;
                   });
 
         size_t k;
+
+        // The most frequent elements are the nearest neighbors.
         for (k = 0; k < std::min(top_k, (unsigned int)counts.size()); k++) {
             selection[query * top_k + k] = counts[k].first;
         }
+        // If there are fewer unique elements than nearest neighbors, return EMPTY as the value.
         for (; k < top_k; k++) {
             selection[query * top_k + k] = EMPTY;
         }
